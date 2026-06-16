@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Sora:wght@300;400;500;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #0a0a0b;
+  --surface:     #111113;
+  --surface-2:   #18181b;
+  --surface-3:   #1e1e22;
+  --border:      #27272a;
+  --border-dim:  #1e1e21;
+  --text:        #a1a1aa;
+  --text-2:      #71717a;
+  --text-bright: #fafafa;
+  --accent:      #6366f1;
+  --accent-dim:  rgba(99,102,241,0.12);
+  --accent-glow: rgba(99,102,241,0.25);
+  --high:        #ef4444;
+  --high-dim:    rgba(239,68,68,0.1);
+  --med:         #f59e0b;
+  --med-dim:     rgba(245,158,11,0.1);
+  --low:         #22c55e;
+  --low-dim:     rgba(34,197,94,0.1);
+  --font:        'Sora', sans-serif;
+  --mono:        'Geist Mono', monospace;
+  --r-sm:        6px;
+  --r:           10px;
+  --r-lg:        14px;
+}
+
+body {
+  background: var(--bg);
+  font-family: var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  text-align: left;
+  border: none;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
