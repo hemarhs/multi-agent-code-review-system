@@ -41,6 +41,10 @@ Code:
 
         response = self.llm.generate(prompt)
 
+        print("\n========== LLM RESPONSE ==========")
+        print(response)
+        print("=================================\n")
+
         data = json.loads(response)
 
         findings = []
