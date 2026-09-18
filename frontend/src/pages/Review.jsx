@@ -245,23 +245,34 @@ function AnalysingOverlay() {
 }
 
 function Review() {
-  const [code, setCode] = useState(() => sessionStorage.getItem("review-draft") || "");
-  const [result, setResult] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem("review-result")); }
-    catch { return null; }
-  });
+  const [code, setCode] = useState("");
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
+  const [userId, setUserId] = useState(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
 
   useEffect(() => { loadUser(); }, []);
-  useEffect(() => { sessionStorage.setItem("review-draft", code); }, [code]);
   useEffect(() => {
-    if (result) sessionStorage.setItem("review-result", JSON.stringify(result));
-  }, [result]);
+    if (draftLoaded && userId) sessionStorage.setItem(`review-draft-${userId}`, code);
+  }, [code, userId, draftLoaded]);
+  useEffect(() => {
+    if (draftLoaded && userId && result) sessionStorage.setItem(`review-result-${userId}`, JSON.stringify(result));
+  }, [result, userId, draftLoaded]);
 
   async function loadUser() {
     const { data: { user } } = await supabase.auth.getUser();
     setName(user?.user_metadata?.full_name || "User");
+    if (!user) return;
+
+    setUserId(user.id);
+    setCode(sessionStorage.getItem(`review-draft-${user.id}`) || "");
+    try {
+      setResult(JSON.parse(sessionStorage.getItem(`review-result-${user.id}`)) || null);
+    } catch {
+      setResult(null);
+    }
+    setDraftLoaded(true);
   }
 
   async function reviewCode() {

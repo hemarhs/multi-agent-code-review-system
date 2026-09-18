@@ -14,6 +14,9 @@ function Navbar() {
   }, []);
 
   async function logout() {
+    // Remove legacy shared keys created before drafts were scoped per user.
+    sessionStorage.removeItem("review-draft");
+    sessionStorage.removeItem("review-result");
     await supabase.auth.signOut();
     navigate("/");
   }
