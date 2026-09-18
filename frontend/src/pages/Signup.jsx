@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import supabase from "../lib/supabase";
@@ -45,17 +45,36 @@ function Signup() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowpassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
   async function signUp() {
-    const { error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: name } },
-    });
-    if (error) { alert(error.message); return; }
-    alert("Account created successfully!");
-    navigate("/");
+    if (!name.trim() || !email.trim() || !password) {
+      alert("Enter your name, email, and password.");
+      return;
+    }
+    if (password.length < 8) {
+      alert("Your password must be at least 8 characters.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(), password,
+        options: { data: { full_name: name.trim() } },
+      });
+      if (error) throw error;
+
+      alert(data.session ? "Account created successfully!" : "Account created. Check your email to confirm it, then sign in.");
+      navigate("/");
+    } catch (error) {
+      console.error("Signup failed:", error);
+      alert(error.message || "Unable to sign up. Check your Supabase connection and try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -93,7 +112,7 @@ function Signup() {
             value={password}
             onChange={e => setPassword(e.target.value)}
             right={
-              <button onClick={() => setShowPassword(!showPassword)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", display: "flex", alignItems: "center", padding: 0 }}
+              <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(value => !value)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", display: "flex", alignItems: "center", padding: 0 }}
                 onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.7)"}
                 onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.3)"}>
                 {showPassword ? <FaEyeSlash size={14} /> : <FaEye size={14} />}
@@ -111,19 +130,20 @@ function Signup() {
 
           <button
             onClick={signUp}
+            disabled={submitting}
             style={{
               width: "100%", padding: "12px 20px",
               background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
               color: "#fff", border: "none", borderRadius: 10,
               fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif",
-              cursor: "pointer", letterSpacing: "-0.01em",
+              cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1, letterSpacing: "-0.01em",
               boxShadow: "0 0 24px rgba(99,102,241,0.35)",
               transition: "all 0.2s ease",
             }}
             onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 0 40px rgba(99,102,241,0.5)"; }}
             onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 0 24px rgba(99,102,241,0.35)"; }}
           >
-            Create free account
+            {submitting ? "Creating account…" : "Create free account"}
           </button>
 
           <div style={{ margin: "24px 0", display: "flex", alignItems: "center", gap: 12 }}>

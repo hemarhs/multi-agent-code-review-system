@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 import supabase from "../lib/supabase";
+import { apiFetch } from "../lib/api";
 
 const CARDS = [
   {
@@ -145,13 +146,13 @@ function Dashboard() {
      data: { user },
    } = await supabase.auth.getUser();
 
-   const response = await fetch(
-     `http://127.0.0.1:8000/analytics/${user.id}`
-   );
-
-   const data = await response.json();
-
-    setAnalytics(data);
+   if (!user) return;
+   try {
+     setAnalytics(await apiFetch(`/analytics/${user.id}`));
+   } catch (error) {
+     console.error("Unable to load analytics:", error);
+     setAnalytics({});
+   }
  }
 
   const loading = !analytics;

@@ -27,7 +27,7 @@ const S = {
   },
 };
 
-function AuthInput({ label, type = "text", placeholder, value, onChange, right }) {
+function AuthInput({ label, type = "text", placeholder, value, onChange, right, autoComplete }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <label style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: "rgba(255,255,255,0.4)", marginBottom: 7, letterSpacing: "0.04em", fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase" }}>
@@ -36,11 +36,7 @@ function AuthInput({ label, type = "text", placeholder, value, onChange, right }
       <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
         <input
           type={type}
-          autoComplete={
-          type === "password"
-          ? "new-password"
-          : "off"
-          }
+          autoComplete={autoComplete || (type === "password" ? "current-password" : "email")}
           placeholder={placeholder}
           value={value}
           onChange={onChange}
@@ -69,6 +65,7 @@ function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -83,9 +80,21 @@ function Login() {
   }
 
   async function login() {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) { alert(error.message); return; }
-    navigate("/review");
+    if (!email.trim() || !password) {
+      alert("Enter your email and password.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) throw error;
+      navigate("/review");
+    } catch (error) {
+      console.error("Login failed:", error);
+      alert(error.message || "Unable to sign in. Check your connection and try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function forgotPassword() {
@@ -132,8 +141,9 @@ function Login() {
             placeholder="••••••••"
             value={password}
             onChange={e => setPassword(e.target.value)}
+            autoComplete="current-password"
             right={
-              <button onClick={() => setShowPassword(!showPassword)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", display: "flex", alignItems: "center", padding: 0, transition: "color 0.15s" }}
+              <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(value => !value)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", display: "flex", alignItems: "center", padding: 0, transition: "color 0.15s" }}
                 onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.7)"}
                 onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.3)"}>
                 {showPassword ? <FaEyeSlash size={14} /> : <FaEye size={14} />}
@@ -151,19 +161,20 @@ function Login() {
 
           <button
             onClick={login}
+            disabled={submitting}
             style={{
               width: "100%", padding: "12px 20px",
               background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
               color: "#fff", border: "none", borderRadius: 10,
               fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif",
-              cursor: "pointer", letterSpacing: "-0.01em",
+              cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1, letterSpacing: "-0.01em",
               boxShadow: "0 0 24px rgba(99,102,241,0.35)",
               transition: "all 0.2s ease",
             }}
             onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 0 40px rgba(99,102,241,0.5)"; }}
             onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 0 24px rgba(99,102,241,0.35)"; }}
           >
-            Sign in
+            {submitting ? "Signing in…" : "Sign in"}
           </button>
 
           <div style={{ margin: "24px 0", display: "flex", alignItems: "center", gap: 12 }}>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 import supabase from "../lib/supabase";
+import { apiFetch } from "../lib/api";
 
 function History() {
   const [reviews, setReviews] = useState([]);
@@ -16,9 +17,17 @@ function History() {
 
   async function loadReviews() {
     const { data: { user } } = await supabase.auth.getUser();
-    const response = await fetch(`http://127.0.0.1:8000/reviews/user/${user.id}`);
-    const data = await response.json();
-    setReviews(data);
+    if (!user) return;
+    try {
+      const savedReviews = await apiFetch(`/reviews/user/${user.id}`);
+      const reviewsWithFindings = await Promise.all(savedReviews.map(async (review) => ({
+        ...review,
+        findings: await apiFetch(`/reviews/${review.id}`),
+      })));
+      setReviews(reviewsWithFindings);
+    } catch (error) {
+      console.error("Unable to load review history:", error);
+    }
   }
 
   function toggle(id) {
@@ -196,6 +205,27 @@ function History() {
                           >
                             {review.code}
                           </pre>
+                          <div style={{ marginTop: 22 }}>
+                            <p style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 }}>
+                              Review Results · {review.findings?.length || 0} finding{review.findings?.length === 1 ? "" : "s"}
+                            </p>
+                            {review.findings?.length ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                {review.findings.map((finding) => (
+                                  <div key={finding.id} style={{ background: "rgba(129,140,248,0.05)", border: "1px solid rgba(129,140,248,0.18)", borderLeft: "3px solid #818cf8", borderRadius: 10, padding: "14px 16px" }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 7 }}>
+                                      <strong style={{ color: "#e2e8f0", fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>{finding.title}</strong>
+                                      <span style={{ color: "#818cf8", fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{finding.severity} · {finding.agent}</span>
+                                    </div>
+                                    <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 12.5, lineHeight: 1.6, margin: "0 0 9px" }}>{finding.explanation}</p>
+                                    <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 11.5, lineHeight: 1.6, margin: 0, fontFamily: "'JetBrains Mono', monospace" }}><span style={{ color: "#60c8f5" }}>Fix: </span>{finding.suggested_fix}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, margin: 0, fontFamily: "'JetBrains Mono', monospace" }}>No issues were found in this review.</p>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

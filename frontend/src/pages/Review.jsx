@@ -2,6 +2,7 @@ import Editor from "@monaco-editor/react";
 import { useState, useEffect, useRef } from "react";
 import Navbar from "../components/Navbar";
 import supabase from "../lib/supabase";
+import { apiFetch } from "../lib/api";
 
 /* ─── Load Monaco once ──────────────────────────────────────────────── */
 let monacoLoaded = false;
@@ -23,7 +24,7 @@ function loadMonaco() {
 
 const SEV = {
   critical: { color: "#ff6b81", glow: "rgba(255,107,129,0.3)",  bg: "rgba(255,107,129,0.08)", border: "rgba(255,107,129,0.25)", icon: "⬡", rank: 0 },
-  high:     { color: "#ffa552", glow: "rgba(255,165,82,0.3)",   bg: "rgba(255,165,82,0.08)",  border: "rgba(255,165,82,0.25)",  icon: "◈", rank: 1 },
+  high:     { color: "#ff6b81", glow: "rgba(255,107,129,0.3)",  bg: "rgba(255,107,129,0.08)", border: "rgba(255,107,129,0.25)", icon: "◈", rank: 1 },
   medium:   { color: "#f7c948", glow: "rgba(247,201,72,0.25)",  bg: "rgba(247,201,72,0.07)",  border: "rgba(247,201,72,0.22)",  icon: "◇", rank: 2 },
   low:      { color: "#4ade80", glow: "rgba(74,222,128,0.25)",  bg: "rgba(74,222,128,0.07)",  border: "rgba(74,222,128,0.22)",  icon: "○", rank: 3 },
   info:     { color: "#60c8f5", glow: "rgba(96,200,245,0.25)",  bg: "rgba(96,200,245,0.07)",  border: "rgba(96,200,245,0.22)",  icon: "◎", rank: 4 },
@@ -244,12 +245,19 @@ function AnalysingOverlay() {
 }
 
 function Review() {
-  const [code, setCode] = useState("");
-  const [result, setResult] = useState(null);
+  const [code, setCode] = useState(() => sessionStorage.getItem("review-draft") || "");
+  const [result, setResult] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem("review-result")); }
+    catch { return null; }
+  });
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
 
   useEffect(() => { loadUser(); }, []);
+  useEffect(() => { sessionStorage.setItem("review-draft", code); }, [code]);
+  useEffect(() => {
+    if (result) sessionStorage.setItem("review-result", JSON.stringify(result));
+  }, [result]);
 
   async function loadUser() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -260,13 +268,10 @@ function Review() {
   try {
     setLoading(true);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) throw new Error("Your session has expired. Please sign in again.");
 
-    const response = await fetch(
-      "http://127.0.0.1:8000/review",
-      {
+    const data = await apiFetch("/review", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -275,16 +280,7 @@ function Review() {
           code,
           user_id: user.id,
         }),
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `HTTP Error: ${response.status}`
-      );
-    }
-
-    const data = await response.json();
+      });
 
     console.log("Review Response:", data);
 
@@ -293,9 +289,7 @@ function Review() {
   } catch (error) {
     console.error(error);
 
-    alert(
-      "Review failed. Check browser console."
-    );
+    alert(error.message || "Review failed. Please try again.");
 
   } finally {
     setLoading(false);

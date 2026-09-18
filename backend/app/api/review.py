@@ -12,17 +12,16 @@ router = APIRouter()
 @router.post("/review", response_model=ReviewResponse)
 def review_code(request: ReviewRequest):
 
-    db = DatabaseService()
+    orchestrator = OrchestratorAgent()
+    findings = orchestrator.review(
+        request.code
+    )
 
+    # Do not persist a half-finished review if an AI provider call fails.
+    db = DatabaseService()
     review = db.save_review(
         request.code,
         request.user_id
-    )
-
-    orchestrator = OrchestratorAgent()
-
-    findings = orchestrator.review(
-        request.code
     )
 
     for finding in findings:

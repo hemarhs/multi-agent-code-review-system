@@ -42,7 +42,11 @@ Code:
 
         response = self.llm.generate(prompt)
         
-        data = json.loads(response)
+        try:
+            data = json.loads(response)
+        except json.JSONDecodeError:
+            print("Style Agent returned invalid JSON")
+            return []
         findings = []
 
         for item in data:

@@ -36,7 +36,11 @@ Code:
 
         response = self.llm.generate(prompt)
 
-        data = json.loads(response)
+        try:
+            data = json.loads(response)
+        except json.JSONDecodeError:
+            print("Security Agent returned invalid JSON")
+            return []
 
         findings = []
 

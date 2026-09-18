@@ -41,11 +41,11 @@ Code:
 
         response = self.llm.generate(prompt)
 
-        print("\n========== LLM RESPONSE ==========")
-        print(response)
-        print("=================================\n")
-
-        data = json.loads(response)
+        try:
+            data = json.loads(response)
+        except json.JSONDecodeError:
+            print("Logic Agent returned invalid JSON")
+            return []
 
         findings = []
 
