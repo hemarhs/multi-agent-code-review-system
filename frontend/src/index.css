@@ -529,3 +529,4 @@ button { font-family: inherit; }
 .toast--success svg { color: #6ee7b7; }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .stat--hero.glass--sheen::before { display: none; }
+.agents .agent:last-child:nth-child(odd) { grid-column: 1 / -1; }

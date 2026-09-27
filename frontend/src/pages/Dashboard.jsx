@@ -182,7 +182,7 @@ function Dashboard() {
             <span className="label">{AGENTS.length} agents</span>
           </div>
           <div className="agents">
-            {AGENTS.slice(0, 4).map((a) => (
+            {AGENTS.map((a) => (
               <div className="agent" key={a.key}>
                 <AgentIcon agent={a} />
                 <div>
