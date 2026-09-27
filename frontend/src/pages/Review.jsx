@@ -1,249 +1,158 @@
 import Editor from "@monaco-editor/react";
 import { useState, useEffect, useRef } from "react";
-import Navbar from "../components/Navbar";
 import supabase from "../lib/supabase";
+import AppShell from "../components/AppShell";
 import { apiFetch } from "../lib/api";
+import {
+  Icon, Spinner, useToast,
+  AGENTS, AgentIcon, SevTag, AgentTag, getSev, getAgent, tint, SEVERITY,
+} from "../components/ui";
 
-/* ─── Load Monaco once ──────────────────────────────────────────────── */
-let monacoLoaded = false;
-function loadMonaco() {
-  if (monacoLoaded) return Promise.resolve();
-  monacoLoaded = true;
-  return new Promise((resolve) => {
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js";
-    script.onload = () => {
-      window.require.config({
-        paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs" },
-      });
-      window.require(["vs/editor/editor.main"], resolve);
-    };
-    document.head.appendChild(script);
+const LANGUAGES = [
+  { id: "javascript", label: "JavaScript", ext: "js" },
+  { id: "typescript", label: "TypeScript", ext: "ts" },
+  { id: "python",     label: "Python",     ext: "py" },
+  { id: "java",       label: "Java",       ext: "java" },
+  { id: "go",         label: "Go",         ext: "go" },
+  { id: "cpp",        label: "C++",        ext: "cpp" },
+  { id: "csharp",     label: "C#",         ext: "cs" },
+  { id: "php",        label: "PHP",        ext: "php" },
+  { id: "sql",        label: "SQL",        ext: "sql" },
+];
+
+const SAMPLE = `const express = require("express");
+const db = require("./db");
+const app = express();
+
+app.get("/user", async (req, res) => {
+  const id = req.query.id;
+  // look up the user
+  const rows = await db.query("SELECT * FROM users WHERE id = " + id);
+  let result = [];
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = 0; j < rows.length; j++) {
+      if (rows[i].id == rows[j].id) result.push(rows[i]);
+    }
+  }
+  res.send(result[0].password);
+});
+
+app.listen(3000);
+`;
+
+function defineTheme(monaco) {
+  monaco.editor.defineTheme("obsidian", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "comment", foreground: "8b84b0", fontStyle: "italic" },
+      { token: "keyword", foreground: "f472b6" },
+      { token: "string", foreground: "fcd34d" },
+      { token: "number", foreground: "67e8f9" },
+      { token: "type", foreground: "67e8f9" },
+      { token: "identifier", foreground: "ece9ff" },
+      { token: "delimiter", foreground: "c4b5fd" },
+    ],
+    colors: {
+      "editor.background": "#17122e",
+      "editor.foreground": "#ece9ff",
+      "editorLineNumber.foreground": "#4a4270",
+      "editorLineNumber.activeForeground": "#f472b6",
+      "editor.lineHighlightBackground": "#ffffff0a",
+      "editor.lineHighlightBorder": "#00000000",
+      "editor.selectionBackground": "#c026d355",
+      "editorCursor.foreground": "#fcd34d",
+      "editorIndentGuide.background1": "#ffffff0d",
+      "editorWidget.background": "#1f1940",
+      "scrollbarSlider.background": "#ffffff18",
+      "editorGutter.background": "#17122e",
+    },
   });
 }
-
-const SEV = {
-  critical: { color: "#ff6b81", glow: "rgba(255,107,129,0.3)",  bg: "rgba(255,107,129,0.08)", border: "rgba(255,107,129,0.25)", icon: "⬡", rank: 0 },
-  high:     { color: "#ff6b81", glow: "rgba(255,107,129,0.3)",  bg: "rgba(255,107,129,0.08)", border: "rgba(255,107,129,0.25)", icon: "◈", rank: 1 },
-  medium:   { color: "#f7c948", glow: "rgba(247,201,72,0.25)",  bg: "rgba(247,201,72,0.07)",  border: "rgba(247,201,72,0.22)",  icon: "◇", rank: 2 },
-  low:      { color: "#4ade80", glow: "rgba(74,222,128,0.25)",  bg: "rgba(74,222,128,0.07)",  border: "rgba(74,222,128,0.22)",  icon: "○", rank: 3 },
-  info:     { color: "#60c8f5", glow: "rgba(96,200,245,0.25)",  bg: "rgba(96,200,245,0.07)",  border: "rgba(96,200,245,0.22)",  icon: "◎", rank: 4 },
-};
-const getSev = (s = "") => SEV[s.toLowerCase()] || SEV.info;
-
-const AGENT_COLORS = {
-  "security":     { bg: "rgba(255,107,129,0.1)", color: "#ff6b81", border: "rgba(255,107,129,0.2)" },
-  "performance":  { bg: "rgba(96,200,245,0.1)",  color: "#60c8f5", border: "rgba(96,200,245,0.2)" },
-  "style":        { bg: "rgba(167,139,250,0.1)", color: "#a78bfa", border: "rgba(167,139,250,0.2)" },
-  "logic":        { bg: "rgba(247,201,72,0.1)",  color: "#f7c948", border: "rgba(247,201,72,0.2)" },
-  "best-practice":{ bg: "rgba(74,222,128,0.1)",  color: "#4ade80", border: "rgba(74,222,128,0.2)" },
-};
-const getAgentColor = (agent = "") => {
-  const key = Object.keys(AGENT_COLORS).find(k => agent.toLowerCase().includes(k));
-  return key ? AGENT_COLORS[key] : { bg: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.45)", border: "rgba(255,255,255,0.12)" };
-};
-
-function MonacoEditor({ value, onChange }) {
-  return (
-    <Editor
-      height="320px"
-      defaultLanguage="javascript"
-      theme="vs-dark"
-      value={value}
-      onChange={(value) => onChange(value || "")}
-      options={{
-        minimap: { enabled: false },
-        fontSize: 13,
-        wordWrap: "on",
-        automaticLayout: true,
-        scrollBeyondLastLine: false,
-      }}
-    />
-  );
-}
-
-function ConfidenceBar({ confidence }) {
-  const pct = Math.round((confidence || 0.85) * 100);
-  const color = pct >= 90 ? "#4ade80" : pct >= 70 ? "#f7c948" : "#ffa552";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: "rgba(255,255,255,0.3)", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>CONFIDENCE</span>
-      <div style={{ flex: 1, height: 3, background: "rgba(255,255,255,0.06)", borderRadius: 99, overflow: "hidden", minWidth: 60 }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 99, boxShadow: `0 0 8px ${color}80`, transition: "width 0.6s ease" }} />
-      </div>
-      <span style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color, minWidth: 28 }}>{pct}%</span>
-    </div>
-  );
-}
-
-function SeverityBadge({ severity }) {
-  const cfg = getSev(severity);
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 5,
-      padding: "3px 10px", borderRadius: 99,
-      fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-      background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
-      fontFamily: "'JetBrains Mono', monospace", flexShrink: 0,
-      boxShadow: `0 0 10px ${cfg.glow}`,
-    }}>
-      <span style={{ fontSize: 11 }}>{cfg.icon}</span>
-      {severity || "info"}
-    </span>
-  );
-}
-
-function AgentBadge({ agent }) {
-  const cfg = getAgentColor(agent);
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 5,
-      padding: "2px 9px", borderRadius: 6,
-      fontSize: 9.5, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase",
-      background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
-      fontFamily: "'JetBrains Mono', monospace", flexShrink: 0,
-    }}>
-      ⬡ {agent || "agent"}
-    </span>
-  );
-}
-
-function FindingCard({ finding, index }) {
-  const [open, setOpen] = useState(false);
-  const cfg = getSev(finding.severity);
-  return (
-    <div style={{
-      background: open ? "rgba(255,255,255,0.035)" : "rgba(255,255,255,0.018)",
-      border: `1px solid ${open ? cfg.border : "rgba(255,255,255,0.07)"}`,
-      borderLeft: `3px solid ${cfg.color}`,
-      borderRadius: 12, overflow: "hidden",
-      transition: "all 0.25s ease",
-      boxShadow: open ? `0 4px 32px ${cfg.glow}` : "none",
-    }}>
-      <button onClick={() => setOpen(v => !v)} style={{
-        width: "100%", display: "flex", alignItems: "center", gap: 14,
-        padding: "15px 20px", background: "transparent", border: "none",
-        cursor: "pointer", textAlign: "left",
-      }}>
-        <span style={{
-          width: 28, height: 28, borderRadius: 7, flexShrink: 0,
-          background: cfg.bg, border: `1px solid ${cfg.border}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 11, fontWeight: 700, color: cfg.color,
-          fontFamily: "'JetBrains Mono', monospace",
-          boxShadow: `0 0 12px ${cfg.glow}`,
-        }}>{String(index + 1).padStart(2, "0")}</span>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{
-            display: "block", fontSize: 13.5, fontWeight: 600,
-            color: "#e2e8f0", fontFamily: "'JetBrains Mono', monospace",
-            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 4,
-          }}>{finding.title}</span>
-          <AgentBadge agent={finding.agent} />
-        </span>
-        <SeverityBadge severity={finding.severity} />
-        <span style={{
-          fontSize: 11, color: "rgba(255,255,255,0.2)",
-          transition: "transform 0.25s", transform: open ? "rotate(180deg)" : "rotate(0deg)",
-          marginLeft: 4, flexShrink: 0,
-        }}>▾</span>
-      </button>
-      {open && (
-        <div style={{ padding: "0 20px 20px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          <div style={{ marginTop: 16, marginBottom: 14 }}>
-            <ConfidenceBar confidence={finding.confidence} />
-          </div>
-          <p style={{ fontSize: 13.5, color: "rgba(255,255,255,0.62)", lineHeight: 1.75, marginBottom: 16, fontFamily: "'Syne', sans-serif" }}>
-            {finding.explanation}
-          </p>
-          <div style={{ background: "rgba(0,0,0,0.35)", border: `1px solid ${cfg.border}`, borderRadius: 10, padding: "16px 18px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-              <span style={{ width: 5, height: 5, borderRadius: "50%", background: cfg.color, boxShadow: `0 0 8px ${cfg.color}` }} />
-              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: cfg.color, fontFamily: "'JetBrains Mono', monospace" }}>Suggested Fix</span>
-            </div>
-            <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.72)", margin: 0, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.7 }}>
-              {finding.suggested_fix}
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function StatPill({ label, count, cfg }) {
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 7,
-      padding: "5px 13px",
-      background: cfg.bg, border: `1px solid ${cfg.border}`,
-      borderRadius: 99, fontSize: 11.5, color: cfg.color,
-      fontFamily: "'JetBrains Mono', monospace",
-    }}>
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.color, boxShadow: `0 0 8px ${cfg.glow}`, flexShrink: 0 }} />
-      <strong style={{ fontWeight: 700 }}>{count}</strong>
-      <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 10.5 }}>{label}</span>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", padding: "64px 24px",
-      background: "rgba(74,222,128,0.03)", border: "1px solid rgba(74,222,128,0.12)",
-      borderRadius: 16, marginTop: 32, textAlign: "center",
-    }}>
-      <div style={{
-        width: 64, height: 64, borderRadius: "50%",
-        background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.2)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 26, marginBottom: 20, boxShadow: "0 0 32px rgba(74,222,128,0.15)",
-      }}>✓</div>
-      <p style={{ fontSize: 17, fontWeight: 700, color: "#4ade80", fontFamily: "'Syne', sans-serif", marginBottom: 8 }}>All Clear</p>
-      <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.3)", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.6 }}>
-        No issues detected in your code.<br />Clean, well-structured, production-ready.
-      </p>
-    </div>
-  );
-}
-
-function AnalysingOverlay() {
-  const steps = ["Parsing AST…", "Running security scan…", "Checking performance…", "Reviewing style…", "Compiling findings…"];
-  const [step, setStep] = useState(0);
+/* ── Running state ────────────────────────────────────────────── */
+function Running() {
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setStep(s => (s + 1) % steps.length), 900);
+    const t = setInterval(() => setTick((s) => s + 1), 100);
     return () => clearInterval(t);
   }, []);
+  const secs = (tick / 10).toFixed(1);
+  const active = Math.floor(tick / 9) % (AGENTS.length + 1);
   return (
-    <div style={{
-      margin: "24px 0", background: "rgba(129,140,248,0.04)",
-      border: "1px solid rgba(129,140,248,0.15)", borderRadius: 12,
-      padding: "20px 24px", display: "flex", alignItems: "center", gap: 18,
-    }}>
-      <div style={{ position: "relative", flexShrink: 0 }}>
-        <svg width="36" height="36" viewBox="0 0 36 36">
-          <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(129,140,248,0.15)" strokeWidth="2.5" />
-          <circle cx="18" cy="18" r="14" fill="none" stroke="#818cf8" strokeWidth="2.5"
-            strokeDasharray="20 68" strokeLinecap="round"
-            style={{ animation: "rv-spin 1.2s linear infinite", transformOrigin: "18px 18px" }} />
-        </svg>
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#818cf8" }}>⬡</div>
+    <div className="running glass glass--sheen" role="status" aria-live="polite">
+      <div className="running__head">
+        <Spinner size={16} />
+        <span className="running__title">Agents are reviewing your code</span>
+        <span className="running__time">{secs}s</span>
       </div>
-      <div>
-        <p style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.7)", fontFamily: "'Syne', sans-serif", marginBottom: 4 }}>AI Review in Progress</p>
-        <p style={{ fontSize: 11.5, color: "#818cf8", fontFamily: "'JetBrains Mono', monospace" }}>{steps[step]}</p>
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ height: 2, background: "rgba(255,255,255,0.05)", borderRadius: 99, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: "35%", background: "linear-gradient(90deg, transparent, #818cf8, #60c8f5, transparent)", animation: "rv-sweep 1.5s ease-in-out infinite" }} />
-        </div>
+      <div className="running__track"><i /></div>
+      <div className="lanes">
+        {AGENTS.map((a, i) => {
+          const isSynth = a.key === "synthesis";
+          const on = isSynth ? active >= AGENTS.length - 1 : true;
+          const hot = isSynth ? on : i === active % (AGENTS.length - 1);
+          return (
+            <div key={a.key} className={`lane${on ? " is-on" : ""}`} style={{ borderColor: hot ? tint(a.color, 0.4) : undefined }}>
+              <AgentIcon agent={a} size={28} iconSize={14} radius={8} />
+              <span className="lane__name">{a.name}</span>
+              <span className="lane__state" style={{ color: on ? a.color : undefined }}>
+                {on ? <><span className="pulse" />{isSynth ? "merging" : "analysing"}</> : "queued"}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
+/* ── Finding card ─────────────────────────────────────────────── */
+function FindingCard({ finding, index, onCopy }) {
+  const [open, setOpen] = useState(index === 0);
+  const sev = getSev(finding.severity);
+  const pct = Math.round((finding.confidence ?? 0.85) * 100);
+  return (
+    <article className={`finding glass${open ? " is-open" : ""}`} style={{ animationDelay: `${Math.min(index, 8) * 0.05}s` }}>
+      <span className="finding__stripe" style={{ background: sev.color, }} />
+      <button className="finding__head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span className="finding__idx">{String(index + 1).padStart(2, "0")}</span>
+        <span className="finding__main">
+          <span className="finding__title" style={{ display: "block" }}>{finding.title}</span>
+          <span className="finding__tags">
+            <SevTag severity={finding.severity} />
+            <AgentTag agent={finding.agent} />
+          </span>
+        </span>
+        <span className="finding__chev"><Icon.chevron size={18} /></span>
+      </button>
+
+      {open && (
+        <div className="finding__body">
+          <div className="conf">
+            <span className="label">Confidence</span>
+            <div className="meter"><i style={{ width: `${pct}%`, background: "var(--grad-brand)" }} /></div>
+            <span className="conf__val">{pct}%</span>
+          </div>
+          <p className="finding__expl">{finding.explanation}</p>
+          {finding.suggested_fix && (
+            <div className="fix">
+              <div className="fix__head">
+                <Icon.check size={13} style={{ color: "#6ee7b7" }} />
+                <span className="label">Suggested fix</span>
+                <button className="icon-btn fix__copy" onClick={() => onCopy(finding.suggested_fix)}>
+                  <Icon.copy size={13} /> Copy
+                </button>
+              </div>
+              <div className="fix__text">{finding.suggested_fix}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+/* ── Page ─────────────────────────────────────────────────────── */
 function Review() {
   const [code, setCode] = useState("");
   const [result, setResult] = useState(null);
@@ -251,6 +160,12 @@ function Review() {
   const [name, setName] = useState("");
   const [userId, setUserId] = useState(null);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [language, setLanguage] = useState("javascript");
+  const [sevFilter, setSevFilter] = useState("all");
+  const [agentFilter, setAgentFilter] = useState("all");
+  const [toastNode, toast] = useToast();
+  const runRef = useRef(() => {});
+  const resultsRef = useRef(null);
 
   useEffect(() => { loadUser(); }, []);
   useEffect(() => {
@@ -276,36 +191,46 @@ function Review() {
   }
 
   async function reviewCode() {
-  try {
-    setLoading(true);
+    if (loading || !code.trim()) return;
+    try {
+      setLoading(true);
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) throw new Error("Your session has expired. Please sign in again.");
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error("Your session has expired. Please sign in again.");
 
-    const data = await apiFetch("/review", {
+      const data = await apiFetch("/review", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          code,
-          user_id: user.id,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, user_id: user.id }),
       });
 
-    console.log("Review Response:", data);
-
-    setResult(data);
-
-  } catch (error) {
-    console.error(error);
-
-    alert(error.message || "Review failed. Please try again.");
-
-  } finally {
-    setLoading(false);
+      setResult(data);
+      setSevFilter("all");
+      setAgentFilter("all");
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    } catch (error) {
+      console.error(error);
+      toast(error.message || "Review failed. Please try again.", "error");
+    } finally {
+      setLoading(false);
+    }
   }
-}
+  useEffect(() => { runRef.current = reviewCode; });
+
+  function clearAll() {
+    setCode("");
+    setResult(null);
+    if (userId) sessionStorage.removeItem(`review-result-${userId}`);
+  }
+
+  async function copy(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Fix copied to clipboard");
+    } catch {
+      toast("Couldn't access the clipboard", "error");
+    }
+  }
 
   const findings = result?.findings ?? [];
   const sorted = [...findings].sort((a, b) => getSev(a.severity).rank - getSev(b.severity).rank);
@@ -314,165 +239,166 @@ function Review() {
     acc[k] = (acc[k] || 0) + 1;
     return acc;
   }, {});
+  const agentsPresent = [...new Set(findings.map((f) => getAgent(f.agent).name))];
+  const visible = sorted.filter((f) =>
+    (sevFilter === "all" || (f.severity?.toLowerCase() || "info") === sevFilter) &&
+    (agentFilter === "all" || getAgent(f.agent).name === agentFilter)
+  );
+
+  const lines = code ? code.split("\n").length : 0;
+  const lang = LANGUAGES.find((l) => l.id === language);
+  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Syne:wght@400;500;600;700;800&display=swap');
-        @keyframes rv-spin { to { transform: rotate(360deg); } }
-        @keyframes rv-sweep { 0% { transform: translateX(-200%); } 100% { transform: translateX(500%); } }
-        @keyframes rv-fadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
-        .rv-results { animation: rv-fadeIn 0.35s ease forwards; }
-        .rv-finding:hover { border-color: rgba(255,255,255,0.12) !important; }
-      `}</style>
+    <AppShell>
+      <header className="phead">
+        <div className="phead__text rise">
+          <span className="eyebrow"><span className="eyebrow__dot" />Workspace · {name.split(" ")[0]}</span>
+          <h1 className="page-title">
+            Code <span className="serif-i grad-text">review</span>
+          </h1>
+          <p className="page-sub">Paste your code, run the agents, and ship with confidence.</p>
+        </div>
+      </header>
 
-      <div style={{ minHeight: "100vh", background: "#080b10", position: "relative", overflow: "hidden" }}>
-        {/* Ambient orbs */}
-        <div style={{ position: "fixed", top: -180, right: -80, width: 560, height: 560, borderRadius: "50%", pointerEvents: "none", zIndex: 0, background: "radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 65%)" }} />
-        <div style={{ position: "fixed", bottom: -220, left: -100, width: 640, height: 640, borderRadius: "50%", pointerEvents: "none", zIndex: 0, background: "radial-gradient(circle, rgba(16,185,129,0.07) 0%, transparent 65%)" }} />
-        {/* Grid */}
-        <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)", backgroundSize: "48px 48px" }} />
-
-        <Navbar />
-
-        <div style={{ position: "relative", zIndex: 1, maxWidth: 900, margin: "0 auto", padding: "44px 24px 100px" }}>
-
-          {/* Header */}
-          <div style={{ marginBottom: 32 }}>
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              padding: "4px 12px", background: "rgba(129,140,248,0.08)",
-              border: "1px solid rgba(129,140,248,0.2)", borderRadius: 99,
-              fontSize: 10.5, fontFamily: "'JetBrains Mono', monospace",
-              color: "#818cf8", letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 14,
-            }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#818cf8", boxShadow: "0 0 8px #818cf8", display: "inline-block" }} />
-              AI Workspace · {name}
-            </div>
-            <h1 style={{ fontSize: 36, fontWeight: 800, color: "#f0ede8", letterSpacing: "-1.5px", lineHeight: 1.1, marginBottom: 8, fontFamily: "'Syne', sans-serif" }}>
-              Code{" "}
-              <span style={{ background: "linear-gradient(110deg, #818cf8 0%, #60c8f5 60%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-                Review
-              </span>
-            </h1>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.25)", fontFamily: "'JetBrains Mono', monospace" }}>
-              // paste → analyse → ship with confidence
-            </p>
-          </div>
-
-          {/* Editor shell */}
-          <div style={{
-            background: "#0d1117", border: "1px solid rgba(255,255,255,0.07)",
-            borderRadius: 14, overflow: "hidden", transition: "border-color 0.2s",
-          }}>
-            {/* Mac-style titlebar */}
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)",
-              background: "rgba(0,0,0,0.3)",
-            }}>
-              <div style={{ display: "flex", gap: 7 }}>
-                {["#ff5f57","#febc2e","#28c840"].map((c, i) => (
-                  <div key={i} style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />
-                ))}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "rgba(255,255,255,0.18)" }}>
-                <span style={{ padding: "2px 9px", borderRadius: 5, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", background: "rgba(129,140,248,0.1)", color: "rgba(129,140,248,0.7)", border: "1px solid rgba(129,140,248,0.2)" }}>Monaco</span>
-                <span>review.js</span>
-              </div>
-            </div>
-
-            <MonacoEditor value={code} onChange={setCode} />
-
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "8px 16px", borderTop: "1px solid rgba(255,255,255,0.04)", background: "rgba(0,0,0,0.2)",
-            }}>
-              <span style={{ fontSize: 10.5, color: "rgba(255,255,255,0.2)", fontFamily: "'JetBrains Mono', monospace" }}>
-                {code.length > 0 ? `${code.split("\n").length} lines · ${code.length} chars` : "ready"}
-              </span>
-              {loading && (
-                <span style={{ fontSize: 10.5, fontFamily: "'JetBrains Mono', monospace", color: "#818cf8", display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg style={{ animation: "rv-spin 0.8s linear infinite" }} width="10" height="10" viewBox="0 0 10 10">
-                    <circle cx="5" cy="5" r="4" fill="none" stroke="rgba(129,140,248,0.3)" strokeWidth="1.5" />
-                    <circle cx="5" cy="5" r="4" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="6 18" strokeLinecap="round" />
-                  </svg>
-                  analysing
-                </span>
-              )}
-            </div>
-          </div>
-
-          {loading && <AnalysingOverlay />}
-
-          {/* Button row */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, flexWrap: "wrap", gap: 12 }}>
-            <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: "rgba(255,255,255,0.18)" }}>
-              {result ? `↳ ${findings.length} finding${findings.length !== 1 ? "s" : ""} returned` : "↳ ready to analyse"}
-            </span>
-            <button
-              onClick={reviewCode}
-              disabled={loading || !code.trim()}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 10,
-                padding: "12px 28px",
-                background: "linear-gradient(135deg, #6366f1 0%, #818cf8 50%, #60c8f5 100%)",
-                color: "#fff", border: "none", borderRadius: 99,
-                fontFamily: "'Syne', sans-serif", fontSize: 14, fontWeight: 700,
-                cursor: loading || !code.trim() ? "not-allowed" : "pointer",
-                opacity: loading || !code.trim() ? 0.4 : 1,
-                transition: "all 0.3s ease",
-                boxShadow: "0 0 28px rgba(99,102,241,0.35), 0 2px 8px rgba(0,0,0,0.4)",
-              }}
-            >
-              {loading ? (
-                <>
-                  <svg style={{ animation: "rv-spin 0.8s linear infinite" }} width="14" height="14" viewBox="0 0 14 14">
-                    <circle cx="7" cy="7" r="5.5" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" />
-                    <circle cx="7" cy="7" r="5.5" fill="none" stroke="#fff" strokeWidth="2" strokeDasharray="8 26" strokeLinecap="round" />
-                  </svg>
-                  Analysing…
-                </>
-              ) : (
-                <>
-                  <span style={{ width: 26, height: 26, borderRadius: 99, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <path d="M2 1.5l7 3.5-7 3.5V1.5z" fill="white" />
-                    </svg>
-                  </span>
-                  Run Review
-                </>
-              )}
+      {/* Editor */}
+      <section className="editor glass rise d1">
+        <div className="editor__bar">
+          <span className="editor__lights"><i /><i /><i /></span>
+          <span className="editor__tab"><i />untitled.{lang?.ext}</span>
+          <span className="editor__spacer" />
+          <select className="select" value={language} onChange={(e) => setLanguage(e.target.value)} aria-label="Syntax highlighting language">
+            {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+          </select>
+          {!code.trim() ? (
+            <button className="icon-btn" onClick={() => setCode(SAMPLE)} disabled={loading}>
+              <Icon.file size={13} /> Sample
             </button>
-          </div>
-
-          {/* Results */}
-          {result && (
-            <div className="rv-results">
-              {findings.length > 0 ? (
-                <>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "36px 0 14px", flexWrap: "wrap", gap: 10 }}>
-                    <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                      {findings.length} finding{findings.length !== 1 ? "s" : ""} · sorted by severity
-                    </span>
-                    <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                      {Object.entries(counts).sort((a, b) => getSev(a[0]).rank - getSev(b[0]).rank).map(([k, n]) => (
-                        <StatPill key={k} label={k} count={n} cfg={getSev(k)} />
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                    {sorted.map((f, i) => <FindingCard key={i} finding={f} index={i} />)}
-                  </div>
-                </>
-              ) : (
-                <EmptyState />
-              )}
-            </div>
+          ) : (
+            <button className="icon-btn" onClick={clearAll} disabled={loading}>
+              <Icon.trash size={13} /> Clear
+            </button>
           )}
         </div>
-      </div>
-    </>
+
+        <div className="editor__body">
+          <Editor
+            height="380px"
+            language={language}
+            theme="obsidian"
+            value={code}
+            beforeMount={defineTheme}
+            onMount={(editor, monaco) => {
+              editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runRef.current());
+            }}
+            onChange={(value) => setCode(value || "")}
+            loading={<div style={{ height: 380, display: "grid", placeItems: "center", color: "#a78bfa", background: "#17122e" }}><Spinner size={18} /></div>}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 13.5,
+              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+              fontLigatures: true,
+              lineHeight: 22,
+              wordWrap: "on",
+              automaticLayout: true,
+              scrollBeyondLastLine: false,
+              padding: { top: 18, bottom: 18 },
+              renderLineHighlight: "all",
+              smoothScrolling: true,
+              cursorBlinking: "smooth",
+              cursorSmoothCaretAnimation: "on",
+              roundedSelection: true,
+              guides: { indentation: true },
+              overviewRulerBorder: false,
+              hideCursorInOverviewRuler: true,
+              scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+            }}
+          />
+        </div>
+
+        <div className="editor__foot">
+          <div className="editor__meta">
+            <span><b>{lines}</b> lines</span>
+            <span><b>{code.length}</b> chars</span>
+            <span>{lang?.label}</span>
+          </div>
+          <button className="btn btn--primary btn--lg" onClick={reviewCode} disabled={loading || !code.trim()}>
+            {loading ? <><Spinner /> Analysing…</> : <><Icon.play size={12} /> Run review <span className="kbd">{isMac ? "⌘" : "Ctrl"} ↵</span></>}
+          </button>
+        </div>
+      </section>
+
+      {loading && <Running />}
+
+      {/* Results */}
+      {result && !loading && (
+        <section className="results" ref={resultsRef}>
+          {findings.length > 0 ? (
+            <>
+              <div className="summary glass glass--sheen">
+                <div className="summary__count">
+                  <span className="summary__num">{findings.length}</span>
+                  <span className="summary__lbl">finding{findings.length !== 1 ? "s" : ""}<br />detected</span>
+                </div>
+                <div className="summary__bars">
+                  <span className="label">Severity breakdown</span>
+                  <div className="dist" style={{ margin: 0 }}>
+                    {Object.keys(SEVERITY).map((k) => counts[k] ? (
+                      <i key={k} style={{ flexGrow: counts[k], background: SEVERITY[k].color }} />
+                    ) : null)}
+                  </div>
+                  <div className="summary__chips">
+                    {Object.keys(SEVERITY).filter((k) => counts[k]).map((k) => (
+                      <span key={k} className="dist-legend__row" style={{ gap: 7, fontSize: 12.5 }}>
+                        <span className="sev__dot" style={{ background: SEVERITY[k].color, width: 7, height: 7 }} />
+                        {SEVERITY[k].label} <b style={{ marginLeft: 2 }}>{counts[k]}</b>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="filters">
+                <div className="summary__chips">
+                  <button className={`chip${sevFilter === "all" ? " is-active" : ""}`} onClick={() => setSevFilter("all")}>
+                    All <b>{findings.length}</b>
+                  </button>
+                  {Object.keys(SEVERITY).filter((k) => counts[k]).map((k) => (
+                    <button key={k} className={`chip${sevFilter === k ? " is-active" : ""}`} onClick={() => setSevFilter(k)}>
+                      <span className="chip__dot" style={{ background: SEVERITY[k].color }} />
+                      {SEVERITY[k].label} <b>{counts[k]}</b>
+                    </button>
+                  ))}
+                </div>
+                {agentsPresent.length > 1 && (
+                  <select className="select" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)} aria-label="Filter by agent" style={{ height: 30 }}>
+                    <option value="all">All agents</option>
+                    {agentsPresent.map((a) => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                )}
+              </div>
+
+              <div className="findings">
+                {visible.map((f, i) => (
+                  <FindingCard key={`${sevFilter}-${agentFilter}-${i}`} finding={f} index={i} onCopy={copy} />
+                ))}
+                {visible.length === 0 && (
+                  <p style={{ color: "var(--text-3)", textAlign: "center", padding: 28 }}>No findings match these filters.</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="allclear glass glass--sheen">
+              <div className="allclear__badge"><Icon.check size={28} /></div>
+              <h3>All <span className="serif-i">clear</span></h3>
+              <p>No issues detected — clean, well-structured and production-ready.</p>
+            </div>
+          )}
+        </section>
+      )}
+
+      {toastNode}
+    </AppShell>
   );
 }
 

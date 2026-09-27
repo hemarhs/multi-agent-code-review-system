@@ -1,6 +1,7 @@
 import { Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import supabase from "../lib/supabase";
+import { BootScreen } from "./ui";
 
 function ProtectedRoute({ children }) {
   const [loading, setLoading] = useState(true);
@@ -20,7 +21,7 @@ function ProtectedRoute({ children }) {
   }
 
   if (loading) {
-    return <h2>Loading...</h2>;
+    return <BootScreen />;
   }
 
   if (!authenticated) {
